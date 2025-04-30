@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, Collection } from 'discord.js';
-import { setupBot, pollEmailCommand } from './commands/commands.js';
+import { setupBot, pollEmailCommand, migrateEmailCommand } from './commands/commands.js';
 
 dotenv.config();
 
@@ -46,6 +46,7 @@ client.commands.set(setupBot.data.name, setupBot);
 client.commands.set(pingCommand.data.name, pingCommand);
 client.commands.set(echoCommand.data.name, echoCommand);
 client.commands.set(pollEmailCommand.data.name, pollEmailCommand);
+//client.commands.set(migrateEmailCommand.data.name, migrateEmailCommand);
 
 // Event handler when bot is ready
 client.once(Events.ClientReady, (readyClient) => {
