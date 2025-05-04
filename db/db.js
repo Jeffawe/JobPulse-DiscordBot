@@ -11,10 +11,3 @@ export const connectDB = async () => {
     driver: sqlite3.Database
   });
 };
-
-const ensureDBFolderExists = () => {
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
