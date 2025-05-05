@@ -25,11 +25,34 @@ export const setupBot = {
                 return interaction.reply({ content: 'Error: Could not retrieve the channel.', ephemeral: true });
             }
 
-            if (!channel.permissionsFor(interaction.client.user.id).has(PermissionsBitField.Flags.ManageChannels)) {
-                return interaction.reply({ 
-                    content: 'I need the `MANAGE_CHANNELS` permission to modify channel settings.',
-                    flags: { ephemeral: true } 
-                  });
+            // Check for required permissions
+            const botId = interaction.client.user.id;
+            const requiredPermissions = [
+                PermissionsBitField.Flags.ManageChannels,
+                PermissionsBitField.Flags.UseApplicationCommands
+            ];
+            
+            const currentPermissions = channel.permissionsFor(botId);
+            const missingPermissions = requiredPermissions.filter(perm => !currentPermissions.has(perm));
+            
+            if (missingPermissions.length > 0) {
+                // Attempt to update channel permissions for the bot
+                try {
+                    await channel.permissionOverwrites.edit(botId, {
+                        ManageChannels: true,
+                        UseApplicationCommands: true
+                    });
+                    
+                    await interaction.reply({ 
+                        content: 'I\'ve updated my permissions in this channel to ensure commands work properly!',
+                        ephemeral: true 
+                    });
+                } catch (permError) {
+                    return interaction.reply({
+                        content: 'I need the `MANAGE_CHANNELS` and `USE_APPLICATION_COMMANDS` permissions to work properly. Please have an admin update my permissions.',
+                        ephemeral: true
+                    });
+                }
             }
 
             // Connect to the DB
@@ -55,7 +78,6 @@ export const setupBot = {
             await interaction.reply({ content: 'There was an error setting up the bot!', ephemeral: true });
             return;
         }
-
     }
 };
 
@@ -144,7 +166,8 @@ const pollData = async (id) => {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'userid': id
+                'userid': id,
+                'api-key': process.env.API_KEY
             }
         });
 
@@ -166,7 +189,8 @@ const migrateData = async (id) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'userid': id
+                'userid': id,
+                'api-key': process.env.API_KEY
             }
         });
 
