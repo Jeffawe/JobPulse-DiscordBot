@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { connectDB } from "../db/db.js";
 import { SlashCommandBuilder, PermissionsBitField } from 'discord.js';
+import { encryptMultipleFields, decryptMultipleFields } from '../encryption.js';
 
 dotenv.config();
 
@@ -31,10 +32,10 @@ export const setupBot = {
                 PermissionsBitField.Flags.ManageChannels,
                 PermissionsBitField.Flags.UseApplicationCommands
             ];
-            
+
             const currentPermissions = channel.permissionsFor(botId);
             const missingPermissions = requiredPermissions.filter(perm => !currentPermissions.has(perm));
-            
+
             if (missingPermissions.length > 0) {
                 // Attempt to update channel permissions for the bot
                 try {
@@ -42,10 +43,10 @@ export const setupBot = {
                         ManageChannels: true,
                         UseApplicationCommands: true
                     });
-                    
-                    await interaction.reply({ 
+
+                    await interaction.reply({
                         content: 'I\'ve updated my permissions in this channel to ensure commands work properly!',
-                        ephemeral: true 
+                        ephemeral: true
                     });
                 } catch (permError) {
                     return interaction.reply({
@@ -58,19 +59,54 @@ export const setupBot = {
             // Connect to the DB
             const db = await connectDB();
 
-            const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+            const user = await db.get(
+                `SELECT credentials_encrypted_data, credentials_iv, credentials_auth_tag FROM users WHERE email = ?`,
+                [email]
+            );
 
             if (!user) {
                 await interaction.reply({ content: "Email not found. Please register first.", ephemeral: true });
                 return;
             }
 
-            const webhook = (user.discord_webhook)
-                ? user.discord_webhook
-                : await createChannelWebhook(channel) ?? "NULL";
+            // Decrypt credentials
+            const decryptedCreds = decryptMultipleFields(
+                user.credentials_encrypted_data,
+                user.credentials_iv,
+                user.credentials_auth_tag
+            );
 
-            await db.run('UPDATE users SET discord_id = ?, guild_id = ?, discord_webhook = ? WHERE email = ?',
-                [discordId, guildId, webhook, email]);
+            // Create new webhook if not present
+            const webhook = decryptedCreds.discord_webhook
+                ? decryptedCreds.discord_webhook
+                : await createChannelWebhook(channel) ?? null;
+
+            // Update credentials
+            const updatedCreds = {
+                refresh_token: decryptedCreds.refresh_token,
+                discord_webhook: webhook
+            };
+
+            // Re-encrypt
+            const { encryptedData, iv, authTag } = encryptMultipleFields(updatedCreds);
+
+            // Update database
+            await db.run(
+                `UPDATE users 
+                SET discord_id = ?, guild_id = ?,
+                    credentials_encrypted_data = ?, credentials_iv = ?, credentials_auth_tag = ?,
+                    discord_webhook = ?
+                WHERE email = ?`,
+                [
+                    discordId,
+                    guildId,
+                    encryptedData,
+                    iv,
+                    authTag,
+                    Boolean(webhook), // true if webhook is set
+                    email
+                ]
+            );
 
             await interaction.reply('Bot successfully set up and linked to your account!');
         } catch (error) {
@@ -115,7 +151,7 @@ export const pollEmailCommand = {
 export const migrateEmailCommand = {
     data: new SlashCommandBuilder()
         .setName('migrate-emails')
-        .setDescription('Migrate Existing Emails to the new label'),   
+        .setDescription('Migrate Existing Emails to the new label'),
 
     async execute(interaction) {
         const discordId = interaction.user.id;
@@ -175,7 +211,7 @@ const pollData = async (id) => {
             const errorData = await response.text();
             throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorData}`);
         }
-        
+
         return await response.json();
     } catch (error) {
         // Throw a more informative error
@@ -198,7 +234,7 @@ const migrateData = async (id) => {
             const errorData = await response.text();
             throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorData}`);
         }
-        
+
         return await response.json();
     } catch (error) {
         // Throw a more informative error
