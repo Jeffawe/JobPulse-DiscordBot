@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { connectDB } from "../db/db.js";
 import { SlashCommandBuilder, PermissionsBitField } from 'discord.js';
 import { encryptMultipleFields, decryptMultipleFields } from '../encryption.js';
+import { cacheUtils, CACHE_DURATIONS } from '../config/cacheConfig.js'; 
 
 dotenv.config();
 
@@ -60,7 +61,7 @@ export const setupBot = {
             const db = await connectDB();
 
             const user = await db.get(
-                `SELECT credentials_encrypted_data, credentials_iv, credentials_auth_tag FROM users WHERE email = ?`,
+                `SELECT id, credentials_encrypted_data, credentials_iv, credentials_auth_tag FROM users WHERE email = ?`,
                 [email]
             );
 
@@ -107,6 +108,11 @@ export const setupBot = {
                     email
                 ]
             );
+
+            const userId = user.id;
+
+            // Set up cache
+            await cacheUtils.setCache(`discord_webhook:${userId}`, webhook, CACHE_DURATIONS.DISCORD_WEBHOOK);
 
             await interaction.reply('Bot successfully set up and linked to your account!');
         } catch (error) {
