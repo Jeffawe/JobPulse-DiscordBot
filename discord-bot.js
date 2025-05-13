@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, Collection } from 'discord.js';
 import { setupBot, pollEmailCommand } from './commands/commands.js';
 import express from 'express';
+import { fetchDiscordMessages } from './commands/discordMessages.js';
 
 dotenv.config();
 
@@ -38,7 +39,7 @@ const echoCommand = {
   data: new SlashCommandBuilder()
     .setName('echo')
     .setDescription('Echoes your input')
-    .addStringOption(option => 
+    .addStringOption(option =>
       option.setName('message')
         .setDescription('The message to echo')
         .setRequired(true)),
@@ -58,7 +59,7 @@ client.commands.set(pollEmailCommand.data.name, pollEmailCommand);
 // Event handler when bot is ready
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);
-  
+
   // Deploy slash commands
   registerCommands();
 });
@@ -74,9 +75,9 @@ client.on(Events.InteractionCreate, async interaction => {
     await command.execute(interaction);
   } catch (error) {
     console.error(error);
-    await interaction.reply({ 
-      content: 'There was an error executing this command!', 
-      ephemeral: true 
+    await interaction.reply({
+      content: 'There was an error executing this command!',
+      ephemeral: true
     });
   }
 });
@@ -85,9 +86,9 @@ client.on(Events.InteractionCreate, async interaction => {
 client.on(Events.MessageCreate, message => {
   // Ignore messages from bots
   if (message.author.bot) return;
-  
+
   console.log(`Message received from ${message.author.username}: ${message.content}`);
-  
+
   // Example of responding to a specific message
   if (message.content.toLowerCase() === 'hello bot') {
     message.channel.send('Hello there!');
@@ -97,7 +98,7 @@ client.on(Events.MessageCreate, message => {
 client.on(Events.GuildCreate, async (guild) => {
   try {
     // Get the general or welcome channel (you can choose any channel for instructions)
-    const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === 'general'); 
+    const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === 'general');
 
     console.log(channel);
     if (!channel) return;
@@ -132,7 +133,7 @@ client.on(Events.GuildCreate, async (guild) => {
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   const commandsData = Array.from(client.commands.values()).map(command => command.data.toJSON());
-  
+
   try {
     console.log('Started refreshing application (/) commands.');
 
@@ -152,16 +153,52 @@ async function getChannelIdFromWebhook(webhookUrl) {
   const urlParts = webhookUrl.split('/');
   const webhookId = urlParts[urlParts.length - 2];
   const webhookToken = urlParts[urlParts.length - 1];
-  
+
   // Use Discord API to fetch webhook info
   const response = await fetch(`https://discord.com/api/webhooks/${webhookId}/${webhookToken}`);
   const webhookData = await response.json();
-  
+
   return webhookData.channel_id;
 }
 
 // Log in to Discord with your client's token
 client.login(process.env.DISCORD_TOKEN);
+
+app.get('/discord/messages', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== `Bearer ${BOT_SECRET}`) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    const webhookUrl = req.headers['x-discord-webhook'];
+    
+    if (!webhookUrl || !webhookUrl.startsWith('https://discord.com/api/webhooks/')) {
+      return res.status(400).json({ error: 'Invalid or missing Discord webhook URL' });
+    }
+
+    const { date, page = 1, limit = 10 } = req.query;
+
+    const channelId = await getChannelIdFromWebhook(webhookUrl);
+
+    if (!date) {
+      return res.status(400).json({ error: 'Missing date parameter' });
+    }
+
+    const result = await fetchDiscordMessages({
+      date,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      channelId
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching Discord messages:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 app.post('/updateMessages', async (req, res) => {
   try {
@@ -179,38 +216,38 @@ app.post('/updateMessages', async (req, res) => {
 
     for (const update of updates) {
       const { discord_msg_id, discord_webhook, jobStatus, date } = update;
-      
+
       if (!discord_msg_id || !discord_webhook) {
         results.push({ success: false, error: 'Missing required fields' });
         continue;
       }
-      
+
       try {
         // Get channel ID from webhook URL
         const channelId = await getChannelIdFromWebhook(discord_webhook);
-        
+
         // Get the channel and message
         const channel = await client.channels.fetch(channelId);
         const message = await channel.messages.fetch(discord_msg_id);
-        
+
         // Get current embed data to preserve other fields
         const currentEmbed = message.embeds[0]?.data || {};
-        
+
         // Create updated embed preserving original content
         const updatedEmbed = new EmbedBuilder()
           .setTitle(currentEmbed.title || 'Job Update')
           .setColor(currentEmbed.color || 5814783);
-        
+
         // Preserve description if it exists
         if (currentEmbed.description) {
           updatedEmbed.setDescription(currentEmbed.description);
         }
-        
+
         // Process existing fields, updating only Status and Date
         const updatedFields = [];
         let hasStatusField = false;
         let hasDateField = false;
-        
+
         if (currentEmbed.fields) {
           currentEmbed.fields.forEach(field => {
             if (field.name === 'Status') {
@@ -235,7 +272,7 @@ app.post('/updateMessages', async (req, res) => {
             }
           });
         }
-        
+
         // Add Status field if it didn't exist before
         if (!hasStatusField && jobStatus) {
           updatedFields.push({
@@ -244,7 +281,7 @@ app.post('/updateMessages', async (req, res) => {
             inline: true
           });
         }
-        
+
         // Add Date field if it didn't exist before
         if (!hasDateField && date) {
           updatedFields.push({
@@ -253,10 +290,10 @@ app.post('/updateMessages', async (req, res) => {
             inline: true
           });
         }
-        
+
         // Add all fields to the embed
         updatedEmbed.addFields(updatedFields);
-        
+
         // Preserve footer
         if (currentEmbed.footer) {
           updatedEmbed.setFooter({
@@ -266,20 +303,20 @@ app.post('/updateMessages', async (req, res) => {
         } else {
           updatedEmbed.setFooter({ text: 'Job Application Tracker' });
         }
-        
+
         // Update the message
         await message.edit({ embeds: [updatedEmbed] });
-        results.push({ 
-          success: true, 
-          messageId: discord_msg_id, 
-          channelId: channelId 
+        results.push({
+          success: true,
+          messageId: discord_msg_id,
+          channelId: channelId
         });
       } catch (err) {
         console.error(`Failed to update message ${discord_msg_id}:`, err);
-        results.push({ 
-          success: false, 
-          error: err.message, 
-          messageId: discord_msg_id 
+        results.push({
+          success: false,
+          error: err.message,
+          messageId: discord_msg_id
         });
       }
     }
