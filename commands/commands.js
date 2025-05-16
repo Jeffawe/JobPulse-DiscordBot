@@ -78,7 +78,7 @@ export const setupBot = {
             );
 
             // Create new webhook if not present
-            const webhook = decryptedCreds.discord_webhook
+            const webhook = decryptedCreds.discord_webhook && decryptedCreds.discord_webhook.startsWith('https://discord.com/api/webhooks/')
                 ? decryptedCreds.discord_webhook
                 : await createChannelWebhook(channel) ?? null;
 
@@ -113,7 +113,10 @@ export const setupBot = {
 
             // Set up cache
             await cacheUtils.setCache(`discord_webhook:${userId}`, webhook, CACHE_DURATIONS.DISCORD_WEBHOOK);
+            await cacheUtils.deleteCache(`userbasic:${userId}`);
+            await cacheUtils.deleteCache(`data:${userId}`);
 
+            // Send success message
             await interaction.reply('Bot successfully set up and linked to your account!');
         } catch (error) {
             console.error('Error executing setup command:', error);
