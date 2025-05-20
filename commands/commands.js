@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { connectDB } from "../db/db.js";
 import { SlashCommandBuilder, PermissionsBitField } from 'discord.js';
-import { encryptMultipleFields, decryptMultipleFields } from '../encryption.js';
+import { encryptMultipleFields, decryptMultipleFields } from '../secrets/encryption.js';
 import { cacheUtils, CACHE_DURATIONS } from '../config/cacheConfig.js'; 
 
 dotenv.config();
